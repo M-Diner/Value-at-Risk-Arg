@@ -5,13 +5,11 @@ import pandas as pd
 import scipy.stats as stats
 
 
-def plot_series(df, title, y_label):   
+def plot_series(df, tickers, title, y_label):   
     plt.figure(figsize=(12, 6))
     plt.margins(x=0)
-    plt.plot(df.index, df['BMA'], label='BMA')
-    plt.plot(df.index, df['BBAR'], label='BBAR')
-    plt.plot(df.index, df['SUPV'], label='SUPV')
-    plt.plot(df.index, df['GGAL'], label='GGAL')
+    for ticker in tickers:
+        plt.plot(df.index, df[ticker], label=ticker)
     plt.legend()
     plt.xlabel('Fecha')
     plt.ylabel(f'{y_label}')
@@ -27,6 +25,17 @@ def plot_volatility(df, name):
     plt.xlabel('Fecha')
     plt.ylabel('Desvio')
     plt.title(f'Desvios para {name}')
+
+
+def get_returns(Prices):    
+    df_Returns = pd.DataFrame()
+    for i in Prices.columns:
+        
+        df_Returns[i] = np.diff(np.log(Prices[i]))
+        df_Returns['Date'] = Prices.index[0:-1] 
+        df_Returns = df_Returns.set_index('Date')
+    return df_Returns
+
 
 def generate_stock_volatility(df_Returns,ticker, Lambda = 0.94, Days=50):
 
@@ -71,7 +80,7 @@ def generate_stock_volatility(df_Returns,ticker, Lambda = 0.94, Days=50):
                     'desv_MM': desv_MM})
     return  df_volatility
 
-
+######################################################################################
 
 def generate_multi_volatility_EWMA(Returns, Lambda = 0.94, Days=50):
     
@@ -94,7 +103,7 @@ def generate_multi_volatility_EWMA(Returns, Lambda = 0.94, Days=50):
         while(i+Days<n):
             
             ret2_temp= Returns[ticker][i:(i+Days) ]**2
-            variance_vec_temp.append(np.dot( pond, ret2_temp).sum() )
+            variance_vec_temp.append(np.dot( pond, ret2_temp).sum() * 252)
             
             i=i+1
        
@@ -108,6 +117,9 @@ def generate_multi_volatility_EWMA(Returns, Lambda = 0.94, Days=50):
 
     return  EWMA_desv
 
+######################################################################################
+
+
 def generate_multi_volatility_MM(Returns , Days=50):
     
     MM_desv = pd.DataFrame()
@@ -120,12 +132,14 @@ def generate_multi_volatility_MM(Returns , Days=50):
                     .rolling (window = Days) 
                     .apply(np.std)
                     .values[Days+1:] 
-                    )
+                    )*np.sqrt(252)
         
     MM_desv['Date'] = Returns.sort_index(ascending= True).index[Days+1:]
     MM_desv = MM_desv.set_index('Date').sort_index(ascending= False)
+    
     return  MM_desv
 
+######################################################################################
 
 def check_distribution (Returns,ticker):
     mu = np.mean(Returns[ticker])
@@ -142,15 +156,50 @@ def check_distribution (Returns,ticker):
     print(f'{ticker} - Kolmogorov-Smirnov test p-value: {kstest_result.pvalue}')
 
 
-def generate_multi_COV(Returns, Days):
+def generate_multi_COV(Returns, Days=50):
        
     COV = []
     
     # itero sobre cada columna
     for i in range(len(Returns)-Days):
 
-        COV.append(Returns.iloc[i:i+50, ].cov())
+        COV.append(Returns.iloc[i:i+Days-1, ].cov())
     
     COV= np.array(COV)
     return  COV
 
+
+
+''' def Generate_VaR_hist_portfolio(Prices , COV_hist, VaR_days, Weights, Days, Z_value ):
+    n = len(Prices)
+    Var_hist= []
+
+    # itero sobre cada columna
+    for i in range(n-Days-1):
+
+        Var_hist.append( Z_value *  np.sqrt(VaR_days) * np.sqrt((np.array(Weights).dot(COV_hist[0])).dot(np.array(Weights).T)))
+                                   
+    df_VaR = pd.DataFrame({
+                'Date': Prices.index[0:(n-Days-1)],
+                'VaR': Var_hist}).set_index('Date')  
+    return  df_VaR
+ '''
+
+
+def VaR_hist_from_sd(Prices , volatility, VaR_days, Weights, Days, Z_value ):    
+    n = len(Prices)
+    Var_hist= []
+
+    # itero sobre cada columna
+    for i in range(len(Prices)-Days-2):
+
+        Var_hist.append( Z_value * 
+                        np.sqrt(VaR_days/252) * 
+                        (np.sqrt(volatility[i].diagonal()).dot( Prices.iloc[i, : ] * Weights)) *
+                        np.sqrt(252)
+                        )
+                                   
+    df_VaR = pd.DataFrame({
+                'Date': Prices.index[0:(n-Days-1)],
+                'VaR': Var_hist}).set_index('Date')  
+    return  df_VaR
